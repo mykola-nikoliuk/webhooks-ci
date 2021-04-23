@@ -41,7 +41,13 @@ function verifyPostData(req, res, next) {
 }
 
 app.post('/', verifyPostData, async function (req, res) {
-  await update(req.body.repository.name);
+  const {repository: { name = '' } = {}, ref} = req.body || {};
+
+  if (ref === 'refs/heads/production') {
+    console.log(`skip: ${ref}`);
+  } else {
+    await update(name);
+  }
   res.status(200).send('Request body was signed')
 })
 
