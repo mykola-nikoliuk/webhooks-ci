@@ -43,7 +43,7 @@ function verifyPostData(req, res, next) {
 app.post('/', verifyPostData, async function (req, res) {
   const {repository: { name = '' } = {}, ref} = req.body || {};
 
-  if (ref === 'refs/heads/production') {
+  if (ref !== 'refs/heads/production') {
     console.log(`skip: ${ref}`);
   } else {
     await update(name);
