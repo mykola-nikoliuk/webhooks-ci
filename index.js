@@ -4,6 +4,7 @@ const express = require('express')
 const bodyParser = require('body-parser')
 const { spawn } = require("child_process");
 const path = require("path");
+const fs = require("fs");
 
 const secret = process.env.GITHUB_SECRET;
 const sigHeaderName = 'X-Hub-Signature-256'
@@ -11,9 +12,11 @@ const sigHashAlg = 'sha256'
 
 const app = express();
 
-const PROJECT_PATH = {
-  analyzer: 'server'
-}
+const projectConfig = JSON.parse(
+  fs.readFileSync(
+    path.join(__dirname, 'config.json')
+  )
+);
 
 // Saves a valid raw JSON body to req.rawBody
 // Credits to https://stackoverflow.com/a/35651853/90674
@@ -42,13 +45,18 @@ function verifyPostData(req, res, next) {
 
 app.post('/', verifyPostData, async function (req, res) {
   const {repository: { name = '' } = {}, ref} = req.body || {};
+  const [, branch] = /^refs\/heads\/(.*)$/g.exec(ref);
 
-  if (ref !== 'refs/heads/production') {
-    console.log(`skip: ${ref}`);
+  if (!projectConfig[name]) {
+    console.log(`Skip unknown project: "${name}"`);
+  } else if (!projectConfig[name][branch]) {
+    console.log(`Skip unknown branch: "${branch}"`);
   } else {
-    await update(name);
+    const config = projectConfig[name][branch];
+    update(name, branch, config);
   }
-  res.status(200).send('Request body was signed')
+
+  res.status(200).send('Request body was signed');
 })
 
 app.use((err, req, res, next) => {
@@ -58,15 +66,18 @@ app.use((err, req, res, next) => {
 
 app.listen(3000, () => console.log("Listening on port 3000"));
 
-async function update(appName) {
-  console.log('appName: ', appName);
-  process.chdir(path.join(__dirname, '..', appName, PROJECT_PATH[appName]));
-  await runProcess('pm2', ['stop', appName]);
-  await runProcess('git', ['pull']);
-  await runProcess('npm', ['i']);
-  await runProcess('pm2', ['start', appName]);
+async function update(appName, branch, config) {
+  console.log(`Update:`);
+  console.log(`repo: ${appName}`);
+  console.log(`branch: ${branch}`);
 
-  console.log('path', path.join(__dirname, '..', appName));
+  process.chdir(path.join(__dirname, '..', config.path));
+  await runProcess('pm2', ['stop', config.pm2]);
+  await runProcess('git', ['reset', '--hard']);
+  await runProcess('git', ['fetch']);
+  await runProcess('git', ['checkout', `origin/${branch}`]);
+  await runProcess('npm', ['i']);
+  await runProcess('pm2', ['start', config.pm2]);
 }
 
 function runProcess(process, args) {
